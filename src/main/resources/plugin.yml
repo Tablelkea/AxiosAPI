@@ -1,0 +1,8 @@
+name: AxiosAPI
+version: '${version}'
+
+main: fr.kilian.api.Main
+api-version: '1.21.10'
+load: POSTWORLD
+
+authors: [ TablePasDroite ]
