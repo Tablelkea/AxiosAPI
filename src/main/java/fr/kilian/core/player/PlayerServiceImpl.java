@@ -1,8 +1,10 @@
 package fr.kilian.core.player;
 
+import fr.kilian.api.component.ComponentRegistry;
 import fr.kilian.api.player.PlayerProfile;
 import fr.kilian.api.player.PlayerService;
 
+import java.time.Clock;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,15 +19,28 @@ public final class PlayerServiceImpl implements PlayerService {
 
     public PlayerServiceImpl(
             PlayerProfileRepository repository,
-            PlayerProfileFactory factory
+            ComponentRegistry componentRegistry,
+            Clock clock
     ) {
+        this.repository = Objects.requireNonNull(
+                repository,
+                "repository cannot be null"
+        );
 
-        Objects.requireNonNull(repository, "repository cannot be null");
-        Objects.requireNonNull(factory, "componentRegistry cannot be null");
+        Objects.requireNonNull(
+                componentRegistry,
+                "componentRegistry cannot be null"
+        );
 
-        this.repository = repository;
-        this.factory = factory;
+        Objects.requireNonNull(
+                clock,
+                "clock cannot be null"
+        );
 
+        this.factory = new PlayerProfileFactory(
+                componentRegistry,
+                clock
+        );
     }
 
 

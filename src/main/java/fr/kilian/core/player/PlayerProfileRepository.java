@@ -9,7 +9,7 @@ import java.util.concurrent.CompletableFuture;
 public interface PlayerProfileRepository {
 
     CompletableFuture<Optional<PlayerProfile>> find(
-            UUID uuid
+            UUID uniqueId
     );
 
     CompletableFuture<PlayerProfileResolution> createIfAbsent(

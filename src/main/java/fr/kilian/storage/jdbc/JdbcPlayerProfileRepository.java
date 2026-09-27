@@ -1,0 +1,255 @@
+package fr.kilian.storage.jdbc;
+
+import fr.kilian.api.component.ComponentContainer;
+import fr.kilian.api.component.ComponentRegistry;
+import fr.kilian.api.player.PlayerProfile;
+import fr.kilian.core.player.PlayerProfileRepository;
+import fr.kilian.core.player.PlayerProfileResolution;
+
+import javax.sql.DataSource;
+import java.sql.*;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
+
+public class JdbcPlayerProfileRepository implements PlayerProfileRepository {
+
+    private final DataSource dataSource;
+    private final ComponentRegistry componentRegistry;
+    private final Executor executor;
+
+    public JdbcPlayerProfileRepository(
+            DataSource dataSource,
+            ComponentRegistry componentRegistry,
+            Executor executor
+    ) {
+
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource cannot be null");
+        this.componentRegistry = Objects.requireNonNull(componentRegistry, "componentRegistry cannot be null");
+        this.executor = Objects.requireNonNull(executor, "executor cannot be null");
+
+    }
+
+    @Override
+    public CompletableFuture<Optional<PlayerProfile>> find(UUID uniqueId) {
+        Objects.requireNonNull(uniqueId, "uniqueId cannot be null");
+
+        return CompletableFuture.supplyAsync(
+                () -> findBlocking(uniqueId), executor
+        );
+    }
+
+    @Override
+    public CompletableFuture<PlayerProfileResolution> createIfAbsent(PlayerProfile profile) {
+        Objects.requireNonNull(profile, "profile cannot be null");
+
+        return CompletableFuture.supplyAsync(
+                () -> createIfAbsentBlocking(profile),
+                executor
+        );
+    }
+
+    @Override
+    public CompletableFuture<Void> update(PlayerProfile profile) {
+
+        Objects.requireNonNull(profile, "profile cannot be null");
+
+        return CompletableFuture.runAsync(
+                () -> updateBlocking(profile), executor
+        );
+
+    }
+
+    private Optional<PlayerProfile> findBlocking(UUID uniqueId) {
+
+        String sql = """
+            SELECT username, first_join, last_join
+            FROM player_profiles
+            WHERE unique_id = ?
+            """;
+
+        try (
+                Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)
+        ) {
+
+            statement.setString(1, uniqueId.toString());
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+
+                if (!resultSet.next()) {
+                    return Optional.empty();
+                }
+
+                String username =
+                        resultSet.getString("username");
+
+                Instant firstJoin = Instant.ofEpochMilli(
+                        resultSet.getLong("first_join")
+                );
+
+                Instant lastJoin = Instant.ofEpochMilli(
+                        resultSet.getLong("last_join")
+                );
+
+                ComponentContainer components =
+                        new ComponentContainer(componentRegistry);
+
+                PlayerProfile profile = new PlayerProfile(
+                        uniqueId,
+                        username,
+                        firstJoin,
+                        lastJoin,
+                        components
+                );
+
+                return Optional.of(profile);
+            }
+
+        } catch (SQLException exception) {
+            throw new CompletionException(
+                    "Failed to load player profile " + uniqueId,
+                    exception
+            );
+        }
+    }
+
+    private PlayerProfileResolution createIfAbsentBlocking(
+            PlayerProfile profile
+    ) {
+
+        String sql = """
+            INSERT INTO player_profiles (
+                unique_id,
+                username,
+                first_join,
+                last_join
+            )
+            VALUES (?, ?, ?, ?)
+            """;
+
+        try (
+                Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)
+        ) {
+
+            statement.setString(
+                    1,
+                    profile.getUniqueId().toString()
+            );
+
+            statement.setString(
+                    2,
+                    profile.getUsername()
+            );
+
+            statement.setLong(
+                    3,
+                    profile.getFirstJoin().toEpochMilli()
+            );
+
+            statement.setLong(
+                    4,
+                    profile.getLastJoin().toEpochMilli()
+            );
+
+            statement.executeUpdate();
+
+            return new PlayerProfileResolution(
+                    profile,
+                    true
+            );
+
+        } catch (SQLIntegrityConstraintViolationException exception) {
+
+            Optional<PlayerProfile> existing =
+                    findBlocking(profile.getUniqueId());
+
+            PlayerProfile existingProfile =
+                    existing.orElseThrow(() ->
+                            new IllegalStateException(
+                                    "Profile conflict occurred but existing profile could not be found"
+                            )
+                    );
+
+            return new PlayerProfileResolution(
+                    existingProfile,
+                    false
+            );
+
+        } catch (SQLException exception) {
+
+            throw new CompletionException(
+                    "Failed to create player profile "
+                            + profile.getUniqueId(),
+                    exception
+            );
+        }
+    }
+
+    private void updateBlocking(PlayerProfile profile) {
+
+        String sql = """
+            UPDATE player_profiles
+            SET username = ?,
+                first_join = ?,
+                last_join = ?
+            WHERE unique_id = ?
+            """;
+
+        try (
+                Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)
+        ) {
+
+            statement.setString(
+                    1,
+                    profile.getUsername()
+            );
+
+            statement.setLong(
+                    2,
+                    profile.getFirstJoin().toEpochMilli()
+            );
+
+            statement.setLong(
+                    3,
+                    profile.getLastJoin().toEpochMilli()
+            );
+
+            statement.setString(
+                    4,
+                    profile.getUniqueId().toString()
+            );
+
+            int updatedRows = statement.executeUpdate();
+
+            if (updatedRows == 0) {
+                throw new IllegalStateException(
+                        "Cannot update missing player profile "
+                                + profile.getUniqueId()
+                );
+            }
+
+            if (updatedRows != 1) {
+                throw new IllegalStateException(
+                        "Expected to update exactly one player profile, but updated "
+                                + updatedRows
+                );
+            }
+
+        } catch (SQLException exception) {
+            throw new CompletionException(
+                    "Failed to update player profile "
+                            + profile.getUniqueId(),
+                    exception
+            );
+        }
+    }
+
+
+}
