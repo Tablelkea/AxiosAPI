@@ -4,6 +4,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -34,7 +35,7 @@ public class JdbcStorageInitializer {
 
     private void initializeBlocking() {
 
-        String sql = """
+        String profilesSql = """
             CREATE TABLE IF NOT EXISTS player_profiles (
                 unique_id VARCHAR(36) PRIMARY KEY,
                 username VARCHAR(64) NOT NULL,
@@ -43,13 +44,28 @@ public class JdbcStorageInitializer {
             )
             """;
 
+        String componentsSql = """
+            CREATE TABLE IF NOT EXISTS player_components (
+                player_uuid VARCHAR(36) NOT NULL,
+                component_id VARCHAR(255) NOT NULL,
+                payload LONGTEXT NOT NULL,
+
+                PRIMARY KEY (player_uuid, component_id),
+
+                CONSTRAINT fk_player_components_profile
+                    FOREIGN KEY (player_uuid)
+                    REFERENCES player_profiles(unique_id)
+                    ON DELETE CASCADE
+            )
+            """;
+
         try (
                 Connection connection = dataSource.getConnection();
-                PreparedStatement statement =
-                        connection.prepareStatement(sql)
+                Statement statement = connection.createStatement()
         ) {
 
-            statement.executeUpdate();
+            statement.executeUpdate(profilesSql);
+            statement.executeUpdate(componentsSql);
 
         } catch (SQLException exception) {
             throw new CompletionException(
