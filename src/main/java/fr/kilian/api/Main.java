@@ -6,10 +6,12 @@ import fr.kilian.api.component.ComponentRegistry;
 import fr.kilian.core.player.PlayerProfileLifecycle;
 import fr.kilian.core.player.PlayerProfileRepository;
 import fr.kilian.core.player.PlayerServiceImpl;
+import fr.kilian.paper.AxiosApiImpl;
 import fr.kilian.paper.PlayerProfileListener;
 import fr.kilian.storage.jdbc.JdbcPlayerProfileRepository;
 import fr.kilian.storage.jdbc.JdbcStorageInitializer;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Clock;
@@ -25,6 +27,8 @@ public final class Main extends JavaPlugin {
     private ComponentRegistry componentRegistry;
     private PlayerServiceImpl playerService;
     private PlayerProfileLifecycle playerLifecycle;
+
+    private AxiosApi axiosApi;
 
     @Override
     public void onEnable() {
@@ -43,31 +47,47 @@ public final class Main extends JavaPlugin {
                         storageExecutor
                 );
 
-        initializer.initialize()
-                .whenComplete((ignored, error) -> {
+        try {
 
-                    getServer().getScheduler().runTask(
-                            this,
-                            () -> {
+            initializer.initialize()
+                    .get(10, TimeUnit.SECONDS);
 
-                                if (error != null) {
-                                    getLogger().log(
-                                            Level.SEVERE,
-                                            "Failed to initialize database",
-                                            error
-                                    );
+            finishBootstrap();
 
-                                    getServer()
-                                            .getPluginManager()
-                                            .disablePlugin(this);
+            getLogger().info("AxiosAPI initialized successfully.");
 
-                                    return;
-                                }
+        } catch (InterruptedException exception) {
 
-                                finishBootstrap();
-                            }
-                    );
-                });
+            Thread.currentThread().interrupt();
+
+            getLogger().log(
+                    Level.SEVERE,
+                    "Interrupted while initializing AxiosAPI",
+                    exception
+            );
+
+            getServer().getPluginManager().disablePlugin(this);
+
+        } catch (ExecutionException exception) {
+
+            getLogger().log(
+                    Level.SEVERE,
+                    "Failed to initialize AxiosAPI",
+                    exception.getCause()
+            );
+
+            getServer().getPluginManager().disablePlugin(this);
+
+        } catch (TimeoutException exception) {
+
+            getLogger().log(
+                    Level.SEVERE,
+                    "Timed out while initializing AxiosAPI",
+                    exception
+            );
+
+            getServer().getPluginManager().disablePlugin(this);
+        }
     }
 
     @Override
@@ -112,6 +132,15 @@ public final class Main extends JavaPlugin {
         if (dataSource != null) {
             dataSource.close();
         }
+
+        if (axiosApi != null) {
+            getServer()
+                    .getServicesManager()
+                    .unregister(
+                            AxiosApi.class,
+                            axiosApi
+                    );
+        }
     }
 
     private HikariDataSource createDataSource() {
@@ -154,6 +183,20 @@ public final class Main extends JavaPlugin {
                 componentRegistry,
                 clock
         );
+
+        axiosApi = new AxiosApiImpl(
+                playerService,
+                componentRegistry
+        );
+
+        getServer()
+                .getServicesManager()
+                .register(
+                        AxiosApi.class,
+                        axiosApi,
+                        this,
+                        ServicePriority.Normal
+                );
 
         playerLifecycle = new PlayerProfileLifecycle(
                 playerService,

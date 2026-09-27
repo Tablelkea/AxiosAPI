@@ -1,7 +1,6 @@
 package fr.kilian.api.component;
 
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -89,5 +88,35 @@ public class ComponentContainer {
        return Optional.of(key.getType().cast(removed));
 
     }
+
+    public List<ComponentEntry<?>> snapshot() {
+
+        List<ComponentEntry<?>> snapshot = new ArrayList<>();
+
+        for (Map.Entry<ComponentKey<?>, Object> entry : components.entrySet()) {
+            snapshot.add(
+                    createEntry(
+                            entry.getKey(),
+                            entry.getValue()
+                    )
+            );
+        }
+
+        return List.copyOf(snapshot);
+    }
+
+    private <T> ComponentEntry<T> createEntry(
+            ComponentKey<T> key,
+            Object value
+    ) {
+        T typedValue = key.getType().cast(value);
+
+        return new ComponentEntry<>(
+                key,
+                typedValue
+        );
+    }
+
+
 
 }
